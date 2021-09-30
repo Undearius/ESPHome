@@ -2,13 +2,16 @@ esphome:
   name: thermostat
   platform: ESP8266
   board: d1_mini
-
+  on_boot:
+    then:
+      - lambda: "id(oled_brightness).publish_state(0.4);"
+      
 substitutions:
   room: Office # **** Change Room Name Here ****
 #  **** Change next two lines to your Home Assistant Entities ****  
   entity_heater: input_boolean.thermo_heat
   entity_cooler: input_boolean.thermo_cool
-  default_low: "20.0"
+  default_low: "21.0"
   default_hi: "23.0"
 
 wifi:
@@ -38,10 +41,6 @@ ota:
 i2c:
 
 switch:
-  - platform: gpio
-    id: dht_power
-    pin:
-      number: GPIO03
   - platform: template
     id: heat_cool
     optimistic: true      
@@ -72,11 +71,13 @@ binary_sensor:
         then:
           - switch.toggle: heat_cool
     on_click:
-      - min_length: 1000ms
+      - min_length: 600ms
         max_length: 20000ms
         then:
           - display.page.show_next: oled1
-#          - switch.toggle: brightness
+    on_double_click:
+        then:
+          - switch.toggle: brightness
 
 climate:
   - platform: thermostat
@@ -213,7 +214,21 @@ display:
       - id: page1
         lambda: |-
           if (id(fire).state) {id(ani_fire).next_frame(); it.image(0, 0, id(ani_fire));}
-          else if (id(cool).state) {id(ani_fan).next_frame(); it.image(0, 0, id(ani_fan));}
+          else if (id(cool).state) {id(ani_snow).next_frame(); it.image(0, 0, id(ani_snow));}
+          else {it.image(0, 0, id(home_thermometer));}
+          it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "${room}");
+          it.printf(128, 0, id(font1), TextAlign::TOP_RIGHT, " %2.0f", id(internal_humidity).state);
+          it.printf(64, 4, id(font2), TextAlign::TOP_CENTER, " %.1f°", id(internal_temperature).state);
+          it.printf(0, 64, id(font3), TextAlign::BASELINE_LEFT, "L:%.1f°", id(this_thermostat).target_temperature_low);
+          it.printf(128, 64, id(font3), TextAlign::BASELINE_RIGHT, "H:%.1f°", id(this_thermostat).target_temperature_high);
+    
+          if (id(brightness).state) {it.image(56, 51, id(bulb));} 
+          else if (id(heat_cool).state) {it.image(56, 51, id(arrow_right));}
+          else {it.image(56, 51, id(arrow_left));}
+      - id: page3
+        lambda: |-
+          if (id(fire).state) {id(ani_fire).next_frame(); it.image(0, 0, id(ani_fire));}
+          else if (id(cool).state) {id(ani_snow).next_frame(); it.image(0, 0, id(ani_snow));}
           else {it.image(0, 0, id(home_thermometer));}
           it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "${room}");
           it.printf(128, 0, id(font1), TextAlign::TOP_RIGHT, " %2.0f", id(internal_humidity).state);
@@ -226,30 +241,39 @@ display:
           else {it.image(56, 51, id(arrow_left));}
       - id: page2
         lambda: |-
-          it.print(0, 10, id(font1), "This is page 2!");
+          id(ani_fire).next_frame(); it.image(0, 0, id(ani_fire));
+          id(ani_snow).next_frame(); it.image(32, 0, id(ani_snow));
+          id(ani_fan).next_frame(); it.image(64,0, id(ani_fan));
+          it.image(0, 32, id(home_thermometer));
+          it.image(32, 32, id(snowflake));
 
 animation:
-  - file: "_icons/thermostat/fan.gif"
+  - file: "icons/thermostat/fan.gif"
     id: ani_fan
-  - file: "_icons/thermostat/fire.gif"
+  - file: "icons/thermostat/fire.gif"
     id: ani_fire
+  - file: "icons/thermostat/snow.gif"
+    id: ani_snow
 image:
-  - file: "_icons/thermostat/home-thermometer.png"
+  - file: "icons/thermostat/home-thermometer.png"
     id: home_thermometer
-  - file: "_icons/thermostat/arrow-left-circle-outline.png"
+  - file: "icons/thermostat/snowflake.png"
+    id: snowflake
+  - file: "icons/thermostat/arrow-left-circle-outline.png"
     id: arrow_left
-  - file: "_icons/thermostat/arrow-right-circle-outline.png"
+    dither: FLOYDSTEINBERG
+  - file: "icons/thermostat/arrow-right-circle-outline.png"
     id: arrow_right
-  - file: "_icons/thermostat/lightbulb-on-outline.png"
+  - file: "icons/thermostat/lightbulb-on-outline.png"
     id: bulb
 font:
-  - file: "_fonts/nasalization.ttf"
+  - file: "fonts/nasalization.ttf"
     id: font1
     size: 12
-  - file: "_fonts/refsan.ttf"
+  - file: "fonts/refsan.ttf"
     id: font2
     size: 42
-  - file: "_fonts/refsan.ttf"
+  - file: "fonts/refsan.ttf"
     id: font3
     size: 13
 
