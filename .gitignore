@@ -1,5 +1,5 @@
 .esphome
-esphome_name
-kyleoffice
+/esphome_name
+kyleoffice/
 secrets.yaml
-thermostat
+/thermostat
