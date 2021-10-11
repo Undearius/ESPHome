@@ -11,8 +11,11 @@ substitutions:
 #  **** Change next two lines to your Home Assistant Entities ****  
   entity_heater: input_boolean.thermo_heat
   entity_cooler: input_boolean.thermo_cool
+  entity_fan: input_boolean.thermo_fan
   default_low: "21.0"
   default_hi: "23.0"
+  away_low: "17.0"
+  away_hi: "27.0"
 
 wifi:
   ssid: !secret wifissid
@@ -40,16 +43,29 @@ ota:
 
 i2c:
 
+globals:
+  - id: currentmode
+    type: int
+    restore_value: no
+    initial_value: '0'
+
 switch:
   - platform: template
     id: heat_cool
-    optimistic: true      
+    optimistic: true
+  - platform: gpio
+    id: relay_stage2
+    pin: D8
   - platform: gpio
     id: relay_heater
-    pin: D0
+    pin: D7
     inverted: true
   - platform: gpio
     id: relay_cooler
+    pin: D6
+    inverted: true
+  - platform: gpio
+    id: relay_fan
     pin: D5
     inverted: true
   - platform: template
@@ -61,6 +77,8 @@ binary_sensor:
     id: fire
   - platform: template
     id: cool
+  - platform: template
+    id: fan
 
   - platform: gpio
     id: button
@@ -68,8 +86,34 @@ binary_sensor:
       number: D4
       inverted: true
     on_press:
-        then:
-          - switch.toggle: heat_cool
+      - if:
+          condition:
+            display.is_displaying_page: mainpage
+          then:
+            - switch.toggle: heat_cool
+            - lambda: ESP_LOGD("main", "Thermostat preset is %d", id(this_thermostat).preset);
+      - if:
+          condition:
+            display.is_displaying_page: menupage
+          then:
+            - lambda: |-
+                auto call = id(this_thermostat).make_call();
+                if(id(currentmode) == 0) {
+                  call.set_mode("OFF");
+                } else if(id(currentmode) == 1) {
+                  call.set_mode("HEAT_COOL");
+                } else if(id(currentmode) == 2) {
+                  call.set_mode("COOL");
+                } else if(id(currentmode) == 3) {
+                  call.set_mode("HEAT");
+                } else if(id(currentmode) == 4) {
+                  call.set_mode("FAN_ONLY");
+                } else if(id(currentmode) == 5) {
+                  call.set_preset("AWAY");
+                }
+                call.perform();
+                
+            - display.page.show: mainpage
     on_click:
       - min_length: 600ms
         max_length: 20000ms
@@ -81,12 +125,17 @@ binary_sensor:
 
 climate:
   - platform: thermostat
-    name: "${room} Thermostat"
+    name: "Thermostat"
     min_cooling_off_time: 60s
     min_cooling_run_time: 60s
     min_heating_off_time: 60s
     min_heating_run_time: 60s
+    min_fanning_off_time: 60s
+    min_fanning_run_time: 60s
     min_idle_time: 30s
+    away_config:
+      default_target_temperature_low: ${away_low}
+      default_target_temperature_high: ${away_hi}
     
     cool_deadband: 0.5 #Temp above setvalue to engage
     cool_overrun: 0.5 #Temp below setvalue to disengage
@@ -103,7 +152,9 @@ climate:
     default_target_temperature_high: ${default_hi}
 
     cool_action:
+      - switch.turn_on: relay_fan
       - switch.turn_on: relay_cooler
+      - switch.turn_off: relay_heater
       - lambda: id(cool).publish_state(true);
       - homeassistant.service:
           service: homeassistant.turn_on
@@ -111,18 +162,32 @@ climate:
             entity_id: ${entity_cooler}
 
     heat_action:
+      - switch.turn_on: relay_fan
       - switch.turn_on: relay_heater
+      - switch.turn_off: relay_cooler
       - lambda: id(fire).publish_state(true);
       - homeassistant.service:
           service: homeassistant.turn_on
           data:
             entity_id: ${entity_heater}
+            
+    fan_only_action:
+      - switch.turn_on: relay_fan
+      - switch.turn_off: relay_heater
+      - switch.turn_off: relay_cooler
+      - lambda: id(fan).publish_state(true);
+      - homeassistant.service:
+          service: homeassistant.turn_on
+          data:
+            entity_id: ${entity_fan}
 
     idle_action:
+      - switch.turn_off: relay_fan
       - switch.turn_off: relay_cooler
       - switch.turn_off: relay_heater
       - lambda: id(cool).publish_state(false);
       - lambda: id(fire).publish_state(false);
+      - lambda: id(fan).publish_state(false);
       - homeassistant.service:
           service: homeassistant.turn_off
           data:
@@ -131,6 +196,10 @@ climate:
           service: homeassistant.turn_off
           data:
             entity_id: ${entity_heater}
+      - homeassistant.service:
+          service: homeassistant.turn_off
+          data:
+            entity_id: ${entity_fan}
 
 sensor:
   - platform: dht
@@ -150,57 +219,78 @@ sensor:
   - platform: rotary_encoder
     id: encoder
     pin_a:
-      number: D6
+      number: TX
       mode: INPUT_PULLUP
     pin_b:
-      number: D7
+      number: RX
       mode: INPUT_PULLUP
     on_clockwise:
       - if:
           condition:
-            switch.is_on: brightness
+            display.is_displaying_page: mainpage
           then:
-            - sensor.template.publish:
-                id: oled_brightness
-                state: !lambda "return id(oled_brightness).state + 0.01;"
-            - lambda: |-
-                id(oled1).set_brightness( id(oled_brightness).state );
-          else:
             - if:
                 condition:
-                  switch.is_on: heat_cool
+                  switch.is_on: brightness
                 then:
-                  - climate.control:
-                      id: this_thermostat
-                      target_temperature_high: !lambda "return id(this_thermostat).target_temperature_high + 0.5;"
+                  - sensor.template.publish:
+                      id: oled_brightness
+                      state: !lambda "return id(oled_brightness).state + 0.01;"
+                  - lambda: |-
+                      id(oled1).set_brightness( id(oled_brightness).state );
                 else:
-                  - climate.control:
-                      id: this_thermostat
-                      target_temperature_low: !lambda "return id(this_thermostat).target_temperature_low + 0.5;"
+                  - if:
+                      condition:
+                        switch.is_on: heat_cool
+                      then:
+                        - climate.control:
+                            id: this_thermostat
+                            target_temperature_high: !lambda "return id(this_thermostat).target_temperature_high + 0.5;"
+                      else:
+                        - climate.control:
+                            id: this_thermostat
+                            target_temperature_low: !lambda "return id(this_thermostat).target_temperature_low + 0.5;"
+          else:
+            lambda: |-
+              if(id(currentmode) < 5) {
+                id(currentmode) += 1;
+              } else { 
+                id(currentmode) = 0;
+              }
 
     on_anticlockwise:
-      then:
-        - if:
-            condition:
-              switch.is_on: brightness
-            then:
-              - sensor.template.publish:
-                  id: oled_brightness
-                  state: !lambda "return id(oled_brightness).state - 0.01;"
-              - lambda: |-
-                  id(oled1).set_brightness( id(oled_brightness).state);
-            else:
-              - if:
-                  condition:
-                    switch.is_on: heat_cool
-                  then:
-                    - climate.control:
-                        id: this_thermostat
-                        target_temperature_high: !lambda "return id(this_thermostat).target_temperature_high - 0.5;"
-                  else:
-                    - climate.control:
-                        id: this_thermostat
-                        target_temperature_low: !lambda "return id(this_thermostat).target_temperature_low - 0.5;"
+      - if:
+          condition:
+            display.is_displaying_page: mainpage
+          then:
+            - if:
+                condition:
+                  switch.is_on: brightness
+                then:
+                  - sensor.template.publish:
+                      id: oled_brightness
+                      state: !lambda "return id(oled_brightness).state - 0.01;"
+                  - lambda: |-
+                      id(oled1).set_brightness( id(oled_brightness).state);
+                else:
+                  - if:
+                      condition:
+                        switch.is_on: heat_cool
+                      then:
+                        - climate.control:
+                            id: this_thermostat
+                            target_temperature_high: !lambda "return id(this_thermostat).target_temperature_high - 0.5;"
+                      else:
+                        - climate.control:
+                            id: this_thermostat
+                            target_temperature_low: !lambda "return id(this_thermostat).target_temperature_low - 0.5;"
+          else:
+            lambda: |-
+              if(id(currentmode) > 0) {
+                id(currentmode) -= 1;
+              } else { 
+                id(currentmode) = 5;
+              }
 
 display:
   - platform: ssd1306_i2c
@@ -211,13 +301,27 @@ display:
     rotation: 180
     address: 0x3C
     pages:
-      - id: page1
+      - id: mainpage
         lambda: |-
           if (id(fire).state) {id(ani_fire).next_frame(); it.image(0, 0, id(ani_fire));}
           else if (id(cool).state) {id(ani_snow).next_frame(); it.image(0, 0, id(ani_snow));}
+          else if (id(fan).state) {id(ani_fan).next_frame(); it.image(0, 0, id(ani_fan));}
           else {it.image(0, 0, id(home_thermometer));}
-          it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "${room}");
-          it.printf(128, 0, id(font1), TextAlign::TOP_RIGHT, " %2.0f", id(internal_humidity).state);
+              // Display current mode at the top
+              if (id(this_thermostat).mode == 0) {
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Off");
+              } else if (id(this_thermostat).mode == 1){
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Ht/Cl");
+              } else if (id(this_thermostat).mode == 2){
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Cool");
+              } else if (id(this_thermostat).mode == 3){
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Heat");
+              } else if (id(this_thermostat).mode == 4){
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Fan");
+              } else if (id(this_thermostat).preset == 0){
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Away");
+              } else { it.print(64, 0,  id(font2), TextAlign::TOP_CENTER, "Shit"); }
+          it.printf(128, 10, id(font3), TextAlign::BASELINE_RIGHT, " %2.0f%%", id(internal_humidity).state);
           it.printf(64, 4, id(font2), TextAlign::TOP_CENTER, " %.1f°", id(internal_temperature).state);
           it.printf(0, 64, id(font3), TextAlign::BASELINE_LEFT, "L:%.1f°", id(this_thermostat).target_temperature_low);
           it.printf(128, 64, id(font3), TextAlign::BASELINE_RIGHT, "H:%.1f°", id(this_thermostat).target_temperature_high);
@@ -225,21 +329,38 @@ display:
           if (id(brightness).state) {it.image(56, 51, id(bulb));} 
           else if (id(heat_cool).state) {it.image(56, 51, id(arrow_right));}
           else {it.image(56, 51, id(arrow_left));}
-      - id: page3
+      - id: menupage
         lambda: |-
-          if (id(fire).state) {id(ani_fire).next_frame(); it.image(0, 0, id(ani_fire));}
-          else if (id(cool).state) {id(ani_snow).next_frame(); it.image(0, 0, id(ani_snow));}
-          else {it.image(0, 0, id(home_thermometer));}
-          it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "${room}");
-          it.printf(128, 0, id(font1), TextAlign::TOP_RIGHT, " %2.0f", id(internal_humidity).state);
-          it.printf(64, 4, id(font2), TextAlign::TOP_CENTER, " %.1f°", id(internal_temperature).state);
-          it.printf(0, 64, id(font3), TextAlign::BASELINE_LEFT, "L:%.1f°", id(this_thermostat).target_temperature_low);
-          it.printf(128, 64, id(font3), TextAlign::BASELINE_RIGHT, "H:%.1f°", id(this_thermostat).target_temperature_high);
-    
-          if (id(brightness).state) {it.image(56, 51, id(bulb));} 
-          else if (id(heat_cool).state) {it.image(56, 51, id(arrow_right));}
-          else {it.image(56, 51, id(arrow_left));}
-      - id: page2
+              // Display current mode at the top
+              if (id(this_thermostat).mode == 0) {
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Off");
+              } else if (id(this_thermostat).mode == 1){
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Heat/Cool");
+              } else if (id(this_thermostat).mode == 2){
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Cool");
+              } else if (id(this_thermostat).mode == 3){
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Heat");
+              } else if (id(this_thermostat).mode == 4){
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Fan");
+              } else if (id(this_thermostat).preset == 0){
+                it.print(64, 0,  id(font1), TextAlign::TOP_CENTER, "Away");
+              } else { it.print(64, 0,  id(font2), TextAlign::TOP_CENTER, "Shit"); }
+              
+              // Menu for selecting a new mode
+              if (id(currentmode) == 0) {
+                it.print(64, 25,  id(font4), TextAlign::TOP_CENTER, "Off");
+              } else if (id(currentmode) == 1){
+                it.print(64, 25,  id(font4), TextAlign::TOP_CENTER, "Heat/Cool");
+              } else if (id(currentmode) == 2){
+                it.print(64, 25,  id(font4), TextAlign::TOP_CENTER, "Cool");
+              } else if (id(currentmode) == 3){
+                it.print(64, 25,  id(font4), TextAlign::TOP_CENTER, "Heat");
+              } else if (id(currentmode) == 4){
+                it.print(64, 25,  id(font4), TextAlign::TOP_CENTER, "Fan");
+              } else if (id(currentmode) == 5){
+                it.print(64, 25,  id(font4), TextAlign::TOP_CENTER, "Away");
+              } else { it.print(64, 4,  id(font2), TextAlign::TOP_CENTER, "Shit"); }
+      - id: icontestpage
         lambda: |-
           id(ani_fire).next_frame(); it.image(0, 0, id(ani_fire));
           id(ani_snow).next_frame(); it.image(32, 0, id(ani_snow));
@@ -276,4 +397,6 @@ font:
   - file: "fonts/refsan.ttf"
     id: font3
     size: 13
-
+  - file: "fonts/refsan.ttf"
+    id: font4
+    size: 21
