@@ -83,11 +83,10 @@ globals:
 
 text_sensor:
   - platform: template
-    name: "Current Mode"
     id: currentmode
     lambda: |-
       if(id(this_thermostat).mode == 0) {return {"Off"};}
-      if(id(this_thermostat).mode == 1) {return {"Ht/Cl"};}
+      if(id(this_thermostat).mode == 1) {return {"Auto"};}
       if(id(this_thermostat).mode == 2) {return {"Cool"};}
       if(id(this_thermostat).mode == 3) {return {"Heat"};}
     update_interval: 60s
@@ -413,9 +412,13 @@ climate:
             - switch.turn_off: relay_cooler
 
     idle_action:
-      - switch.turn_off: relay_fan
       - switch.turn_off: relay_cooler
       - switch.turn_off: relay_heater
+      - if:
+          condition:
+            - lambda: "return id(this_thermostat.fan_mode != 0;"
+          then:
+            - switch.turn_off: relay_fan
 
 display:
   - platform: ssd1306_i2c
