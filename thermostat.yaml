@@ -61,12 +61,6 @@ switch:
     id: brightness
     optimistic: true
 
-#away_preset - 513
-#home_preset - 257
-#fan_mode_on - 1
-#fan_mode_off - 257
-#fan_mode_auto - 513
-
 globals:
   - id: setmode
     type: int
@@ -79,7 +73,7 @@ globals:
   - id: presetmode
     type: int
     restore_value: no
-    initial_value: '0'
+    initial_value: '1'
 
 text_sensor:
   - platform: template
@@ -87,14 +81,14 @@ text_sensor:
     lambda: |-
       if(id(this_thermostat).mode == 0) {return {"Off"};}
       if(id(this_thermostat).mode == 1) {return {"Auto"};}
-      if(id(this_thermostat).mode == 2) {return {"Cool"};}
-      if(id(this_thermostat).mode == 3) {return {"Heat"};}
+      if(id(this_thermostat).mode == 2) {id(set_min_max).publish_state(true); return {"Cool"};}
+      if(id(this_thermostat).mode == 3) {id(set_min_max).publish_state(false); return {"Heat"};}
     update_interval: 60s
   - platform: template
     id: menutext
     lambda: |-
       if(id(setmode) == 0) {return {"Off"};}
-      if(id(setmode) == 1) {return {"Heat/Cool"};}
+      if(id(setmode) == 1) {return {"Auto"};}
       if(id(setmode) == 2) {return {"Cool"};}
       if(id(setmode) == 3) {return {"Heat"};}
       if(id(setmode) == 4) {return {"Fan Mode"};}
@@ -160,22 +154,13 @@ binary_sensor:
                   - lambda: ESP_LOGD("main", "Menu click. Going back to main page. Setmode is %d", id(setmode));
                   - lambda: |-
                       auto call = id(this_thermostat).make_call();
-                      if(id(setmode) == 0) {
-                        call.set_mode("OFF");
-                        id(currentmode).publish_state("Off");
-                      } else if(id(setmode) == 1) {
+                      if(id(setmode) == 1) {
                         call.set_mode("HEAT_COOL");
-                        id(currentmode).publish_state("Ht/Cl");
-                      } else if(id(setmode) == 2) {
-                        call.set_mode("COOL");
-                        id(currentmode).publish_state("Cool");
-                        id(set_min_max).publish_state(true);
-                      } else if(id(setmode) == 3) {
-                        call.set_mode("HEAT");
-                        id(currentmode).publish_state("Heat");
-                        id(set_min_max).publish_state(false);
+                      } else {
+                        call.set_mode(id(menutext).state.c_str());
                       }
                       call.perform();
+                      id(currentmode).update();
                   - display.page.show: mainpage
 
     on_click:
@@ -416,7 +401,7 @@ climate:
       - switch.turn_off: relay_heater
       - if:
           condition:
-            - lambda: "return id(this_thermostat.fan_mode != 0;"
+            - lambda: "return id(this_thermostat).fan_mode != 0;"
           then:
             - switch.turn_off: relay_fan
 
@@ -450,12 +435,14 @@ display:
           else {it.image(56, 51, id(arrow_left));}
       - id: menu
         lambda: |-
-          // Display current mode at the top
+          // Current mode at the top
           if (id(this_thermostat).preset == 2) {it.print(32, 0,  id(font1), TextAlign::TOP_CENTER, "A-");}
           it.print(64, 0, id(font1), TextAlign::TOP_CENTER, id(currentmode).state.c_str());
           
-          // Menu for selecting a new mode
+          // Menu option for selecting a new mode
           it.print(64, 25, id(font4), TextAlign::TOP_CENTER, id(menutext).state.c_str());
+          
+          if (id(setmode) < 4) {it.print(64, 64, id(font3), TextAlign::BASELINE_CENTER, "Set Mode");}
       - id: submenu
         lambda: |-
           if (id(setmode) == 5) {
