@@ -1,6 +1,5 @@
 .esphome
-/esphome_name
-kyleoffice/
-kyleoffice.yaml
+*/
 secrets.yaml
-/thermostat
+!icons
+!fonts

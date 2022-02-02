@@ -7,7 +7,7 @@ esphome:
       - lambda: "id(oled_brightness).publish_state(0.4);"
       
 substitutions:
-  default_low: "21.0"
+  default_low: "21.5"
   default_hi: "23.0"
   away_low: "17.0"
   away_hi: "27.0"
@@ -27,6 +27,8 @@ wifi:
   ap:
     ssid: "Thermostat Fallback Hotspot"
     password: !secret fallback
+
+captive_portal:
 
 logger:
   logs:
@@ -64,12 +66,12 @@ switch:
 globals:
   - id: setmode
     type: int
-    restore_value: no
+    restore_value: yes
     initial_value: '0'
   - id: fansetmode
     type: int
     restore_value: no
-    initial_value: '0'
+    initial_value: '1'
   - id: presetmode
     type: int
     restore_value: no
@@ -83,6 +85,7 @@ text_sensor:
       if(id(this_thermostat).mode == 1) {return {"Auto"};}
       if(id(this_thermostat).mode == 2) {id(set_min_max).publish_state(true); return {"Cool"};}
       if(id(this_thermostat).mode == 3) {id(set_min_max).publish_state(false); return {"Heat"};}
+      else {return {"Off"};}
     update_interval: 60s
   - platform: template
     id: menutext
@@ -93,17 +96,20 @@ text_sensor:
       if(id(setmode) == 3) {return {"Heat"};}
       if(id(setmode) == 4) {return {"Fan Mode"};}
       if(id(setmode) == 5) {return {"Away Mode"};}
+      else {return {"Off"};}
   - platform: template
     id: fanmenutext
     lambda: |-
       if(id(fansetmode) == 0) {return {"On"};}
       if(id(fansetmode) == 1) {return {"Off"};}
       if(id(fansetmode) == 2) {return {"Auto"};}
+      else {return {"Off"};}
   - platform: template
     id: presetmenutext
     lambda: |-
       if(id(presetmode) == 1) {return {"Home"};}
       if(id(presetmode) == 2) {return {"Away"};}
+      else {return {"Home"};}
 
 binary_sensor:
   - platform: template
@@ -173,7 +179,7 @@ binary_sensor:
                   - display.page.show: mainpage
 
     on_click:
-      - min_length: 600ms
+      - min_length: 500ms
         max_length: 20000ms
         then:
           - display.page.show: menu
@@ -194,10 +200,16 @@ sensor:
       name: "Thermostat Temperature"
       id: internal_temperature
       internal: true
+      filters:
+        - filter_out: nan
+        - offset: -1.0
+        - sliding_window_moving_average:
+            window_size: 6
+            send_every: 3
+            send_first_at: 3
     humidity:
       name: "Thermostat Humidity"
       id: internal_humidity
-      internal: true
     update_interval: 10s
     
   - platform: template
@@ -272,7 +284,7 @@ sensor:
             - sensor.template.publish:
                 id: oled_brightness
                 state: !lambda "return id(oled_brightness).state + 0.01;"
-            - lambda: "id(oled1).set_brightness(id(oled_brightness).state);"
+            - lambda: "id(oled1).set_contrast(id(oled_brightness).state);"
 
     on_anticlockwise:
       - if:
@@ -335,7 +347,7 @@ sensor:
             - sensor.template.publish:
                 id: oled_brightness
                 state: !lambda "return id(oled_brightness).state - 0.01;"
-            - lambda: "id(oled1).set_brightness(id(oled_brightness).state);"
+            - lambda: "id(oled1).set_contrast(id(oled_brightness).state);"
 
 climate:
   - platform: thermostat
@@ -352,9 +364,9 @@ climate:
       default_target_temperature_high: ${away_hi}
     
     cool_deadband: 0.5 #Temp above setvalue to engage
-    cool_overrun: 0.5 #Temp below setvalue to disengage
-    heat_deadband: 0.5 #Temp below setvalue to engage
-    heat_overrun: 0.5 #Temp above setvalue to disengage
+    cool_overrun: 1.0 #Temp below setvalue to disengage
+    heat_deadband: 1.0 #Temp below setvalue to engage
+    heat_overrun: 1.0 #Temp above setvalue to disengage
     
     visual:
       min_temperature: 15 °C
@@ -435,7 +447,7 @@ display:
   - platform: ssd1306_i2c
     id: oled1
     update_interval: 0.5s
-    brightness: 0.4
+    contrast: 0.4
     model: "SH1106 128x64"
     rotation: 180
     address: 0x3C
@@ -456,7 +468,7 @@ display:
           // --- Bottom ---
           it.printf(0, 64, id(font3), TextAlign::BASELINE_LEFT, "L:%.1f°", id(this_thermostat).target_temperature_low);
           it.printf(128, 64, id(font3), TextAlign::BASELINE_RIGHT, "H:%.1f°", id(this_thermostat).target_temperature_high);
-
+          
           if (id(set_min_max).state) {it.image(56, 51, id(arrow_right));}
           else {it.image(56, 51, id(arrow_left));}
       - id: menu

@@ -1,0 +1,39 @@
+esphome:
+  name: kyle-office-temp
+  platform: ESP8266
+  board: d1_mini
+
+wifi:
+  ssid: !secret wifissid
+  password: !secret wifipass
+
+  manual_ip:
+    static_ip: 10.0.3.1
+    gateway: 10.0.0.1
+    subnet: 255.0.0.0
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "ESPHome Fallback Hotspot"
+    password: !secret fallback
+
+captive_portal:
+
+logger:
+  logs:
+    sensor: none
+
+api:
+ota:
+
+sensor:
+  - platform: dht
+    model: DHT22
+    pin: D1
+    temperature:
+      name: "Kyle Office Temperature"
+      id: temperature
+    humidity:
+      name: "Kyle Office Humidity"
+      id: humidity
+    update_interval: 60s
