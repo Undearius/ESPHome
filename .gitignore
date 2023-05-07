@@ -1,4 +1,5 @@
 .esphome
+.env
 */
 secrets.yaml
 !icons

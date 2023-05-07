@@ -3,7 +3,8 @@ substitutions:
   
 esphome:
   name: kyle-office-outlet
-  platform: ESP8266
+  
+esp8266:
   board: esp8285
 
 api:
@@ -13,8 +14,8 @@ ota:
   password: !secret fallback
 
 wifi:
-  ssid: !secret wifissid
-  password: !secret wifipass
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
     
   ap:
     ssid: "Sonoff Fallback Hotspot"
@@ -24,7 +25,7 @@ wifi:
     static_ip: 10.0.4.2
     gateway: 10.0.0.1
     subnet: 255.0.0.0
-    
+        
 captive_portal:
 
 logger:

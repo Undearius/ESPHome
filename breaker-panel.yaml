@@ -1,0 +1,220 @@
+esphome:
+  name: breaker-panel
+  friendly_name: Breaker Panel
+
+external_components:
+  - source: github://emporia-vue-local/esphome@dev
+    components:
+      - emporia_vue
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    version: recommended
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret key
+
+  services:
+    - service: play_rtttl
+      variables:
+        song_str: string
+      then:
+        - rtttl.play:
+            rtttl: !lambda 'return song_str;'
+
+ota:
+  password: !secret fallback
+
+# Enable logging
+logger:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  manual_ip:
+    static_ip: 10.0.4.5
+    gateway: 10.0.0.1
+    subnet: 255.0.0.0
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Emporia Fallback Hotspot"
+    password: !secret fallback
+
+preferences:
+  # the default of 1min is far too short--flash chip is rated
+  # for approx 100k writes.
+  flash_write_interval: "48h"
+
+output:
+  - platform: ledc
+    pin: GPIO12
+    id: buzzer
+
+rtttl:
+  output: buzzer
+  on_finished_playback:
+    - logger.log: 'Song ended!'
+
+button:
+  - platform: template
+    name: "Two Beeps"
+    on_press:
+      - rtttl.play: "two short:d=4,o=5,b=100:16e6,16e6"
+
+light:
+  - platform: status_led
+    name: "D3_LED"
+    pin: 23
+    restore_mode: ALWAYS_ON
+
+i2c:
+  sda: 21
+  scl: 22
+  scan: false
+  frequency: 200kHz  # recommended range is 50-200kHz
+  id: i2c_a
+
+time:
+  - platform: sntp
+    id: my_time
+
+# these are called references in YAML. They allow you to reuse
+# this configuration in each sensor, while only defining it once
+.defaultfilters:
+  - &moving_avg
+    # we capture a new sample every 0.24 seconds, so the time can
+    # be calculated from the number of samples as n * 0.24.
+    sliding_window_moving_average:
+      # we average over the past 2.88 seconds
+      window_size: 12
+      # we push a new value every 1.44 seconds
+      send_every: 6
+  - &invert
+    # invert and filter out any values below 0.
+    lambda: 'return max(-x, 0.0f);'
+  - &pos
+    # filter out any values below 0.
+    lambda: 'return max(x, 0.0f);'
+  - &abs
+    # take the absolute value of the value
+    lambda: 'return abs(x);'
+
+sensor:
+  - platform: emporia_vue
+    i2c_id: i2c_a
+    phases:
+      - id: phase_a  # Verify that this specific phase/leg is connected to correct input wire color on device listed below
+        input: RED  # Vue device wire color
+        calibration: 0.02144  # 0.022 is used as the default as starting point but may need adjusted to ensure accuracy
+        # To calculate new calibration value use the formula <in-use calibration value> * <accurate voltage> / <reporting voltage>
+        voltage:
+          name: "Phase A Voltage"
+          filters: [*moving_avg, *pos]
+        frequency:
+          name: "Phase A Frequency"
+          filters: [*moving_avg, *pos]
+      - id: phase_b  # Verify that this specific phase/leg is connected to correct input wire color on device listed below
+        input: BLACK  # Vue device wire color
+        calibration: 0.02309  # 0.022 is used as the default as starting point but may need adjusted to ensure accuracy
+        # To calculate new calibration value use the formula <in-use calibration value> * <accurate voltage> / <reporting voltage>
+        voltage:
+          name: "Phase B Voltage"
+          filters: [*moving_avg, *pos]
+        phase_angle:
+          name: "Phase B Phase Angle"
+          filters: [*moving_avg, *pos]
+    ct_clamps:
+      - phase_id: phase_a
+        input: "A"  # Verify the CT going to this device input also matches the phase/leg
+        power:
+          name: "Phase A Power"
+          id: phase_a_power
+          device_class: power
+          filters: [*moving_avg, *pos]
+      - phase_id: phase_b
+        input: "B"  # Verify the CT going to this device input also matches the phase/leg
+        power:
+          name: "Phase B Power"
+          id: phase_b_power
+          device_class: power
+          filters: [*moving_avg, *pos]
+      # Pay close attention to set the phase_id for each breaker by matching it to the phase/leg it connects to in the panel
+      - { phase_id: phase_a, input:  "1", power: { name: "Fridge (24b) Power", id:  cir1, filters: [ *moving_avg, *pos ] } }
+      - { phase_id: phase_b, input:  "2", power: { name: "Washer (22a) Power", id:  cir2, filters: [ *moving_avg, *pos ] } }
+      - { phase_id: phase_b, input:  "3", power: { name: "First Floor (22b) Power", id:  cir3, filters: [ *moving_avg, *pos ] } }
+      - { phase_id: phase_a, input:  "4", power: { name: "EV (9a/11b) Power", id:  cir4, filters: [ *moving_avg, *pos, multiply: 2 ] } }
+      - { phase_id: phase_a, input:  "5", power: { name: "Second Floor (20b) Power", id:  cir5, filters: [ *moving_avg, *pos ] } }
+      - { phase_id: phase_a, input:  "6", power: { name: "Microwave (16a) Power", id:  cir6, filters: [ *moving_avg, *pos ] } }
+      - { phase_id: phase_b, input:  "7", power: { name: "Range (14a/16b) Power", id:  cir7, filters: [ *moving_avg, *pos, multiply: 2 ] } }
+      - { phase_id: phase_b, input:  "8", power: { name: "Bed 1 (10) Power", id:  cir8, filters: [ *moving_avg, *pos ] } }
+      - { phase_id: phase_a, input:  "9", power: { name: "Bed 2 (8) Power", id:  cir9, filters: [ *moving_avg, *pos ] } }
+      - { phase_id: phase_a, input: "10", power: { name: "Dish Washer (23a) Power", id: cir10, filters: [ *moving_avg, *pos ] } }
+      - { phase_id: phase_a, input: "11", power: { name: "First Floor (23b) Power", id: cir11, filters: [ *moving_avg, *pos ] } }
+      - { phase_id: phase_a, input: "12", power: { name: "Living Room (19a) Power", id: cir12, filters: [ *moving_avg, *pos ] } }
+      - { phase_id: phase_b, input: "13", power: { name: "Dryer (17a/19b) Power", id: cir13, filters: [ *moving_avg, *pos, multiply: 2 ] } }
+      - { phase_id: phase_a, input: "14", power: { name: "Furnace (15a) Power", id: cir14, filters: [ *moving_avg, *pos ] } }
+      - { phase_id: phase_a, input: "15", power: { name: "A/C (13a/15b) Power", id: cir15, filters: [ *moving_avg, *pos, multiply: 2 ] } }
+      - { phase_id: phase_b, input: "16", power: { name: "Kitchen Right (13b) Power", id: cir16, filters: [ *moving_avg, *pos ] } }
+  - platform: template
+    name: "Total Power"
+    lambda: return id(phase_a_power).state + id(phase_b_power).state;
+    update_interval: 2.88s
+    id: total_power
+    unit_of_measurement: "W"
+  - platform: total_daily_energy
+    name: "Total Daily Energy"
+    power_id: total_power
+    accuracy_decimals: 0
+  - { power_id:  cir1, platform: total_daily_energy, accuracy_decimals: 0, name: "Fridge (24b) Daily Energy" }
+  - { power_id:  cir2, platform: total_daily_energy, accuracy_decimals: 0, name: "Washer (22a) Daily Energy" }
+  - { power_id:  cir3, platform: total_daily_energy, accuracy_decimals: 0, name: "First Floor (22b) Daily Energy" }
+  - { power_id:  cir4, platform: total_daily_energy, accuracy_decimals: 0, name: "EV (9a/11b) Daily Energy" }
+  - { power_id:  cir5, platform: total_daily_energy, accuracy_decimals: 0, name: "Second Floor (20b) Daily Energy" }
+  - { power_id:  cir6, platform: total_daily_energy, accuracy_decimals: 0, name: "Microwave (16a) Daily Energy" }
+  - { power_id:  cir7, platform: total_daily_energy, accuracy_decimals: 0, name: "Range (14a/16b) Daily Energy" }
+  - { power_id:  cir8, platform: total_daily_energy, accuracy_decimals: 0, name: "Bed 1 (10) Daily Energy" }
+  - { power_id:  cir9, platform: total_daily_energy, accuracy_decimals: 0, name: "Bed 2 (8) Daily Energy" }
+  - { power_id: cir10, platform: total_daily_energy, accuracy_decimals: 0, name: "Dish Washer (23a) Daily Energy" }
+  - { power_id: cir11, platform: total_daily_energy, accuracy_decimals: 0, name: "First Floor (23b) Daily Energy" }
+  - { power_id: cir12, platform: total_daily_energy, accuracy_decimals: 0, name: "Living Room (19a) Daily Energy" }
+  - { power_id: cir13, platform: total_daily_energy, accuracy_decimals: 0, name: "Dryer (17a/19b) Daily Energy" }
+  - { power_id: cir14, platform: total_daily_energy, accuracy_decimals: 0, name: "Furnace (15a) Daily Energy" }
+  - { power_id: cir15, platform: total_daily_energy, accuracy_decimals: 0, name: "A/C (13a/15b) Daily Energy" }
+  - { power_id: cir16, platform: total_daily_energy, accuracy_decimals: 0, name: "Kitchen Right (13b) Daily Energy" }
+
+  - platform: template
+    name: "Balance Power"
+    lambda: return id(total_power).state
+        - id(cir1).state
+        - id(cir2).state
+        - id(cir3).state
+        - id(cir4).state
+        - id(cir5).state
+        - id(cir6).state
+        - id(cir7).state
+        - id(cir8).state
+        - id(cir9).state
+        - id(cir10).state
+        - id(cir11).state
+        - id(cir12).state
+        - id(cir13).state
+        - id(cir14).state
+        - id(cir15).state
+        - id(cir16).state;
+    update_interval: 1.44s
+    id: balance_power
+    unit_of_measurement: "W"
+    filters:
+      - lambda: |-
+          if (x >= 0) return x;
+          else return {};
+  - platform: total_daily_energy
+    name: "Balance Daily Energy"
+    power_id: balance_power
+    accuracy_decimals: 0

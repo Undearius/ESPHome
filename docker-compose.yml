@@ -1,0 +1,17 @@
+services:
+  esphome:
+    container_name: esphome
+    image: esphome/esphome
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Toronto
+    volumes:
+      - '${SSD}/esphome:/config'
+#    devices:
+#      - /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0
+    tmpfs: /tmp
+    network_mode: host
+    privileged: false
+    restart: unless-stopped
+

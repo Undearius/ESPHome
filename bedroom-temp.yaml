@@ -1,0 +1,52 @@
+esphome:
+  name: bedroom-temp
+  platformio_options:
+    board_build.mcu: esp32c3
+
+esp32:
+  board: lolin_c3_mini
+  variant: esp32c3
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret key
+
+ota:
+  password: !secret fallback
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  output_power: "8.5"
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Bedroom-Temp Fallback Hotspot"
+    password: !secret fallback
+
+i2c:
+  sda: 7
+  scl: 8
+
+sensor:
+  - platform: aht10
+    temperature:
+      name: "Bedroom Temperature"
+      filters:
+        offset: +0.4
+    humidity:
+      name: "Bedroom Humidity"
+    update_interval: 60s
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: 6
+    name: "Bedroom Motion"
+    device_class: motion
