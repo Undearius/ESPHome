@@ -25,6 +25,8 @@ wifi:
     static_ip: 10.0.4.2
     gateway: 10.0.0.1
     subnet: 255.0.0.0
+    dns1: 10.0.0.10
+    dns2: 1.1.1.1
         
 captive_portal:
 
@@ -43,7 +45,16 @@ sensor:
       name: "${name} Voltage"
     power:
       name: "${name} Power"
+      id: my_power
     update_interval: 10s
+  - platform: total_daily_energy
+    name: "${name} Energy"
+    power_id: my_power
+
+# Time component needed to reset energy at midnight
+time:
+  - platform: homeassistant
+    id: homeassistant_time
 
 binary_sensor:
   - platform: gpio

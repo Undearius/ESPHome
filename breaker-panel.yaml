@@ -40,6 +40,8 @@ wifi:
     static_ip: 10.0.4.5
     gateway: 10.0.0.1
     subnet: 255.0.0.0
+    dns1: 10.0.0.10
+    dns2: 1.1.1.1
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
@@ -116,8 +118,8 @@ sensor:
         voltage:
           name: "Phase A Voltage"
           filters: [*moving_avg, *pos]
-        frequency:
-          name: "Phase A Frequency"
+        phase_angle:
+          name: "Phase A Phase Angle"
           filters: [*moving_avg, *pos]
       - id: phase_b  # Verify that this specific phase/leg is connected to correct input wire color on device listed below
         input: BLACK  # Vue device wire color
@@ -126,8 +128,8 @@ sensor:
         voltage:
           name: "Phase B Voltage"
           filters: [*moving_avg, *pos]
-        phase_angle:
-          name: "Phase B Phase Angle"
+        frequency:
+          name: "Phase B Frequency"
           filters: [*moving_avg, *pos]
     ct_clamps:
       - phase_id: phase_a
@@ -190,30 +192,27 @@ sensor:
 
   - platform: template
     name: "Balance Power"
-    lambda: return id(total_power).state
-        - id(cir1).state
-        - id(cir2).state
-        - id(cir3).state
-        - id(cir4).state
-        - id(cir5).state
-        - id(cir6).state
-        - id(cir7).state
-        - id(cir8).state
-        - id(cir9).state
-        - id(cir10).state
-        - id(cir11).state
-        - id(cir12).state
-        - id(cir13).state
-        - id(cir14).state
-        - id(cir15).state
-        - id(cir16).state;
-    update_interval: 1.44s
+    lambda: !lambda |-
+      return max(0.0f, id(total_power).state -
+        id( cir1).state -
+        id( cir2).state -
+        id( cir3).state -
+        id( cir4).state -
+        id( cir5).state -
+        id( cir6).state -
+        id( cir7).state -
+        id( cir8).state -
+        id( cir9).state -
+        id(cir10).state -
+        id(cir11).state -
+        id(cir12).state -
+        id(cir13).state -
+        id(cir14).state -
+        id(cir15).state -
+        id(cir16).state);
+    update_interval: 2.88s
     id: balance_power
     unit_of_measurement: "W"
-    filters:
-      - lambda: |-
-          if (x >= 0) return x;
-          else return {};
   - platform: total_daily_energy
     name: "Balance Daily Energy"
     power_id: balance_power
